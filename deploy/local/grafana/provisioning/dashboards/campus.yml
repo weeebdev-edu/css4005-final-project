@@ -1,0 +1,7 @@
+apiVersion: 1
+providers:
+  - name: campus
+    folder: campus-app
+    type: file
+    options:
+      path: /var/lib/grafana/dashboards

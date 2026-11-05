@@ -1,0 +1,95 @@
+# LOCAL DEVELOPMENT ONLY. Your real deployment (cloud VMs, Kubernetes,
+# Terraform, a secret manager, a monitoring stack) is your project work.
+#
+#   cp .env.example .env               # then edit the values
+#   docker compose up --build          # app + PostgreSQL
+#   docker compose --profile mysql up --build        (set DB_URL to MySQL in .env)
+#   docker compose --profile clickhouse up --build   (set CLICKHOUSE_URL in .env)
+#   docker compose --profile monitoring up --build   (Prometheus :9090, Grafana :3000)
+
+services:
+  app:
+    build: .
+    image: campus-app:dev
+    ports:
+      - "${APP_PORT:-8000}:8000"
+    env_file: .env
+    volumes:
+      - uploads:/app/data/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+        required: false
+      clickhouse:
+        condition: service_healthy
+        required: false
+
+  postgres:
+    image: postgres:17.6
+    environment:
+      POSTGRES_DB: campus
+      POSTGRES_USER: app_rw
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app_rw -d campus"]
+      interval: 5s
+      retries: 10
+
+  mysql:
+    profiles: ["mysql"]
+    image: mysql:8.4.6
+    environment:
+      MYSQL_DATABASE: campus
+      MYSQL_USER: app_rw
+      MYSQL_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?set MYSQL_ROOT_PASSWORD in .env}
+    volumes:
+      - mysqldata:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uapp_rw -p\"$$MYSQL_PASSWORD\" --silent"]
+      interval: 5s
+      retries: 20
+
+  clickhouse:
+    profiles: ["clickhouse"]
+    image: clickhouse/clickhouse-server:25.3
+    environment:
+      CLICKHOUSE_DB: campus
+      CLICKHOUSE_USER: analytics
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:?set CLICKHOUSE_PASSWORD in .env}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    volumes:
+      - chdata:/var/lib/clickhouse
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8123/ping || exit 1"]
+      interval: 5s
+      retries: 20
+
+  prometheus:
+    profiles: ["monitoring"]
+    image: prom/prometheus:v3.5.0
+    volumes:
+      - ./deploy/local/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+
+  grafana:
+    profiles: ["monitoring"]
+    image: grafana/grafana:12.1.1
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in .env}
+    volumes:
+      - ./deploy/local/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deploy/local/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+
+volumes:
+  uploads:
+  pgdata:
+  mysqldata:
+  chdata:
