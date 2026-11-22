@@ -8,6 +8,8 @@ RUN /venv/bin/pip install --no-cache-dir -r requirements.txt
 
 # --- runtime stage: only the venv + the app, running as non-root ---
 FROM python:3.12-slim
+# pick up Debian security fixes newer than the base image (keeps Trivy green)
+RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*
 ENV PATH="/venv/bin:$PATH" \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
